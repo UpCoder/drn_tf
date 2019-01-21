@@ -83,9 +83,12 @@ def convert2tfrecords(image_paths, mask_paths, save_dir, dataset_name, shuffle=T
 
 
 if __name__ == '__main__':
-    image_paths, mask_paths = read_imgs_labels_paths(
-        '/media/dl-box/HDD3/ld/Documents/datasets/CITYSCAPES',
-        'train'
-    )
-    save_dir = '/media/dl-box/HDD3/ld/Documents/datasets/CITYSCAPES/train_tfrecords'
-    convert2tfrecords(image_paths, mask_paths, save_dir, 'cityscapes')
+    mask_path = '/media/dl-box/HDD3/ld/Documents/datasets/CITYSCAPES/gtFine/val/munster/munster_000173_000019_gtFine_trainIds.png'
+    mask_image = cv2.imread(mask_path, 0)
+    print(np.unique(mask_image))
+    # image_paths, mask_paths = read_imgs_labels_paths(
+    #     '/media/dl-box/HDD3/ld/Documents/datasets/CITYSCAPES',
+    #     'train'
+    # )
+    # save_dir = '/media/dl-box/HDD3/ld/Documents/datasets/CITYSCAPES/train_tfrecords'
+    # convert2tfrecords(image_paths, mask_paths, save_dir, 'cityscapes')

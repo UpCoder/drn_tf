@@ -23,7 +23,7 @@ class BasicBlock:
                 bn2 = slim.batch_norm(conv2, scope='bn2')
                 if down_sample is not None:
                     residual_path = down_sample(input_tensor, output_dim=output_dim, expansion=BasicBlock.expansion,
-                                                stride=stride, arg_scope=arg_scope, scope_name='down_sample')
+                                                stride=stride, arg_scope=arg_scope, scope_name='downsample')
                 if residual:
                     if down_sample is not None:
                         bn2 += residual_path
@@ -84,8 +84,8 @@ class DRN:
         with tf.variable_scope(scope_name):
             with slim.arg_scope(arg_scope):
                 conv1 = slim.conv2d(input_tensor, output_dim * expansion, kernel_size=1, stride=stride,
-                                    biases_initializer=None, scope='conv1')
-                bn1 = slim.batch_norm(conv1, scope='bn1')
+                                    biases_initializer=None, scope='CONV0')
+                bn1 = slim.batch_norm(conv1, scope='BN1')
             return bn1
 
     def _make_layer(self, input_tensor, block, output_dim, blocks, stride=1, dilation=1, new_level=True,
@@ -113,8 +113,8 @@ class DRN:
                 output = input_tensor
                 for i in range(convs):
                     output = slim.conv2d(output, output_dim, kernel_size=3, stride=stride if i == 0 else 1,
-                                         padding='SAME', biases_initializer=None, rate=dilation)
-                    output = slim.batch_norm(output)
+                                         padding='SAME', biases_initializer=None, rate=dilation, scope='CONV0')
+                    output = slim.batch_norm(output, scope='BN1')
                     output = tf.nn.relu(output)
                 return output
 
@@ -139,10 +139,11 @@ class DRN:
                                                    scope_name='layer2')
                 elif self.arch == 'D':
                     with tf.variable_scope('layer0'):
+
                         print(self.input_tensor, self.channels[0])
                         self.conv1 = slim.conv2d(self.input_tensor, self.channels[0], kernel_size=7, stride=1,
-                                                 padding='SAME', biases_initializer=None, scope='conv1')
-                        self.bn1 = slim.batch_norm(self.conv1, scope='bn1')
+                                                 padding='SAME', biases_initializer=None, scope='CONV0')
+                        self.bn1 = slim.batch_norm(self.conv1, scope='BN1')
                         self.relu1 = tf.nn.relu(self.bn1)
 
                     self.layer1 = self._make_conv_layer(self.relu1, output_dim=self.channels[0],
@@ -191,10 +192,10 @@ class DRN:
                                           biases_initializer=tf.zeros_initializer(), scope='fc')
 
     def _build_up(self):
-        with tf.variable_scope('up_brach'):
+        with tf.variable_scope('seg'):
             with slim.arg_scope(self.arg_scope):
                 seg_logits = slim.conv2d(self.final_feature_map, self.num_classes, kernel_size=1,
-                                         biases_initializer=tf.zeros_initializer())
+                                         biases_initializer=tf.zeros_initializer(), scope='CONV')
                 shape = seg_logits.get_shape().as_list()
                 stride = 8
                 self.seg_logits = tf.image.resize_images(seg_logits, [shape[1] * stride, shape[2] * stride])

@@ -7,6 +7,7 @@ from drn import get_model
 import util
 from tensorflow.python.ops import control_flow_ops
 import os
+import numpy as np
 os.environ['CUDA_VISIBLE_DEVICES'] = config.gpu_config['ids']
 tf.app.flags.DEFINE_string('dataset_dir', '/media/dl-box/HDD3/ld/Documents/datasets/CITYSCAPES/train_tfrecords', '')
 tf.app.flags.DEFINE_float('lr', 0.001, '')
@@ -88,6 +89,64 @@ def build_network(batch_queue):
     return train_ops
 
 
+def get_init_fn(npy_path, return_op=False):
+    def load_tf_model_from_npy(save_path):
+        import pickle
+        import numpy as np
+        with open(save_path, 'rb') as f:
+            key_value = pickle.load(f)
+            for key in sorted(key_value.keys()):
+                print(key, np.shape(key_value[key]))
+            return key_value
+    pre_trained_model_paras = load_tf_model_from_npy(npy_path)
+
+    load_dict = {}
+    # vars_list = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
+    vars_list = tf.model_variables()
+    for var in vars_list:
+        print(var)
+    for var in vars_list:
+        # print('var_value:',var.value)
+        vname = str(var.name)
+        if vname.startswith('layer') or vname.startswith('seg'):
+            from_name = vname.replace('Block', '')
+            from_name = from_name.replace('layer', 'base.')
+            from_name = from_name.replace(':0', '')
+            # from_name = from_name.replace('/ExponentialMovingAverage:0', '')
+            from_name = from_name.replace('weights', 'weight')
+            from_name = from_name.replace('gamma', 'weight')
+            from_name = from_name.replace('beta', 'bias')
+            from_name = from_name.replace('moving_mean', 'running_mean')
+            from_name = from_name.replace('moving_variance', 'running_var')
+            from_name = from_name.replace('/', '.')
+            from_name = from_name.replace('CONV', '')
+            from_name = from_name.replace('BN', '')
+            from_name = from_name.replace('seg.', 'seg')
+            from_name = from_name.replace('biases', 'bias')
+        else:
+            print('ignore ', vname)
+            continue
+        try:
+            # from tensorflow.python.tools.inspect_checkpoint import print_tensors_in_checkpoint_file
+            # print_tensors_in_checkpoint_file(checkpoint_path)
+            var_value = pre_trained_model_paras[from_name]
+            var_shape = var.get_shape().as_list()
+            from_shape = np.shape(var_value)
+            if np.sum(var_shape) != np.sum(from_shape):
+                print('Shape not equal! ', vname, var_shape, '<---', from_name, from_shape)
+                continue
+            print(vname, '<---', from_name)
+            load_dict[vname] = var_value
+        except:
+            print('Skip, ', vname, from_name)
+            continue
+        # print('var_value:',var_value)
+        # assign_ops.append(tf.assign(var, var_value))
+    if return_op:
+        return slim.assign_from_values(load_dict)
+    return slim.assign_from_values_fn(load_dict)
+
+
 def train(train_op):
     summary_op = tf.summary.merge_all()
     sess_config = tf.ConfigProto(log_device_placement=False, allow_soft_placement=True)
@@ -95,7 +154,7 @@ def train(train_op):
         sess_config.gpu_options.allow_growth = True
     elif FLAGS.gpu_memory_fraction > 0:
         sess_config.gpu_options.per_process_gpu_memory_fraction = FLAGS.gpu_memory_fraction
-    init_fn = None
+    init_fn = get_init_fn('/home/dl-box/ld/github/drn/drn_d_22.pkl')
     saver = tf.train.Saver(max_to_keep=100, write_version=2)
     slim.learning.train(
         train_op,
@@ -111,12 +170,42 @@ def train(train_op):
     )
 
 
+def test():
+    img_path = '/media/dl-box/HDD3/ld/Documents/datasets/CITYSCAPES/leftImg8bit/val/munster/munster_000173_000019_leftImg8bit.png'
+    import cv2
+    img = np.asarray(cv2.imread(img_path), np.float32)
+    img = np.expand_dims(img, axis=0)
+    img /= 255.0
+    img -= [0.1829540508368939, 0.18656561047509476, 0.18447508988480435]
+    img /= [0.29010095242892997, 0.32808144844279574, 0.28696394422942517]
+    print(np.shape(img))
+    image_placeholder = tf.placeholder(tf.float32, [None, 1024, 2048, 3], 'image_input')
+    drn_d_22 = get_model('drn_d_22')
+    model_obj = drn_d_22(image_placeholder, num_classes=config.dataset_config['num_classes'])
+    [assign_op, feed_dict_init] = get_init_fn('/home/dl-box/ld/github/drn/drn_d_22.pkl', return_op=True)
+    print(assign_op)
+    sess_config = tf.ConfigProto(log_device_placement=False, allow_soft_placement=True)
+    if FLAGS.gpu_memory_fraction < 0:
+        sess_config.gpu_options.allow_growth = True
+    elif FLAGS.gpu_memory_fraction > 0:
+        sess_config.gpu_options.per_process_gpu_memory_fraction = FLAGS.gpu_memory_fraction
+    with tf.Session(config=sess_config) as sess:
+        sess.run(assign_op, feed_dict_init)
+        logit = model_obj.seg_logits
+        logit = tf.nn.softmax(logit)
+        logit = tf.argmax(logit, axis=-1)
+        logit_v = sess.run(logit, feed_dict={
+            image_placeholder: img
+        })
+        print(np.shape(logit_v), np.unique(logit_v))
+
 def main(_):
-    dataset = read_tfrecords_dataset(FLAGS.dataset_dir, 'cityscapes', 19)
-    print_config(dataset)
-    batch_queue = create_dataset_batch_queue(dataset)
-    train_op = build_network(batch_queue)
-    train(train_op)
+    test()
+    # dataset = read_tfrecords_dataset(FLAGS.dataset_dir, 'cityscapes', 19)
+    # print_config(dataset)
+    # batch_queue = create_dataset_batch_queue(dataset)
+    # train_op = build_network(batch_queue)
+    # train(train_op)
 
 
 if __name__ == '__main__':
