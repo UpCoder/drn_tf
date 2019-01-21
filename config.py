@@ -7,7 +7,8 @@ dataset_config = {
     'num_readers': 1,
     'num_threads': 1,
     'batch_size': 1,
-    'input_shape_original': [1024, 2048]
+    'input_shape_original': [1024, 2048],
+    'num_classes': 19
 
 }
 

@@ -58,8 +58,8 @@ def create_dataset_batch_queue(dataset):
         provider = slim.dataset_data_provider.DatasetDataProvider(
             dataset,
             num_readers=config.dataset_config['num_readers'],
-            common_queue_capacity= 2 * config.dataset_config['batch_size'],
-            common_queue_min= 1 * config.dataset_config['batch_size'],
+            common_queue_capacity= 100 * config.dataset_config['batch_size'],
+            common_queue_min= 50 * config.dataset_config['batch_size'],
             # shuffle=True
         )
     [image, mask, image_name, mask_name] = provider.get(['image', 'mask', 'image_name', 'mask_name'])
@@ -77,10 +77,12 @@ def create_dataset_batch_queue(dataset):
         b_image, b_mask, b_image_name, b_mask_name = tf.train.batch([image, mask, image_name, mask_name],
                                                                     batch_size=config.dataset_config['batch_size'],
                                                                     num_threads=config.dataset_config['num_threads'],
-                                                                    capacity=5)
+                                                                    capacity=10)
+        b_image = tf.cast(b_image, tf.float32)
+        b_mask = tf.cast(b_mask, tf.int32)
 
     with tf.name_scope(config.dataset_config['dataset_name'] + '_prefetch_queue'):
-        batch_queue = slim.prefetch_queue.prefetch_queue([b_image, b_mask, b_image_name, b_mask_name], capacity=1)
+        batch_queue = slim.prefetch_queue.prefetch_queue([b_image, b_mask, b_image_name, b_mask_name], capacity=5)
     return batch_queue
 
 

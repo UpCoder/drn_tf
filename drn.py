@@ -63,8 +63,8 @@ class Bottleneck:
 
 
 class DRN:
-    def __init__(self, input_tensor, block, layers, num_classes=19, channels=(16, 32, 64, 128, 256, 512, 512, 512), out_map=False,
-                 out_middle=False, pool_size=28, arch='D'):
+    def __init__(self, input_tensor, block, layers, num_classes=19, channels=(16, 32, 64, 128, 256, 512, 512, 512),
+                 out_map=False, out_middle=False, pool_size=28, arch='D', fc_flag=False):
         self.input_tensor = input_tensor
         self.block = block
         self.layers = layers
@@ -74,7 +74,10 @@ class DRN:
         self.out_map = out_map
         self.pool_size = pool_size
         self.arch = arch
+        self.arg_scope = None
+        self.fc_flag = fc_flag
         self._build_network()
+        self._build_up()
 
     @staticmethod
     def _down_sample_func(input_tensor, output_dim, expansion, stride, arg_scope, scope_name):
@@ -123,6 +126,7 @@ class DRN:
                             weights_initializer=tf.contrib.layers.xavier_initializer(),
                             biases_initializer=None):
             with slim.arg_scope([slim.batch_norm], is_training=True, scale=True) as arg_sc:
+                self.arg_scope = arg_sc
                 if self.arch == 'C':
                     self.conv1 = slim.conv2d(self.input_tensor, self.channels[0], kernel_size=7, stride=1,
                                              scope='conv1')
@@ -135,6 +139,7 @@ class DRN:
                                                    scope_name='layer2')
                 elif self.arch == 'D':
                     with tf.variable_scope('layer0'):
+                        print(self.input_tensor, self.channels[0])
                         self.conv1 = slim.conv2d(self.input_tensor, self.channels[0], kernel_size=7, stride=1,
                                                  padding='SAME', biases_initializer=None, scope='conv1')
                         self.bn1 = slim.batch_norm(self.conv1, scope='bn1')
@@ -180,10 +185,28 @@ class DRN:
                                                                                          scope_name='layer8')
                 self.final_feature_map = self.layer8 if self.layer8 is not None else self.layer7 \
                     if self.layer7 is not None else self.layer6 if self.layer6 is not None else self.layer5
-                if self.num_classes > 0:
+                if self.fc_flag and self.num_classes > 0:
                     self.avg_pool = tf.reduce_mean(self.final_feature_map, reduction_indices=[1, 2], keep_dims=True)
                     self.fc = slim.conv2d(self.avg_pool, num_outputs=self.num_classes, kernel_size=1, stride=1,
                                           biases_initializer=tf.zeros_initializer(), scope='fc')
+
+    def _build_up(self):
+        with tf.variable_scope('up_brach'):
+            with slim.arg_scope(self.arg_scope):
+                seg_logits = slim.conv2d(self.final_feature_map, self.num_classes, kernel_size=1,
+                                         biases_initializer=tf.zeros_initializer())
+                shape = seg_logits.get_shape().as_list()
+                stride = 8
+                self.seg_logits = tf.image.resize_images(seg_logits, [shape[1] * stride, shape[2] * stride])
+
+    def build_loss(self, gt_mask, do_summary=False):
+        cross_entropy = tf.losses.sparse_softmax_cross_entropy(logits=self.seg_logits, labels=gt_mask,
+                                                               loss_collection=None)
+        cross_entropy = tf.reduce_mean(cross_entropy)
+        tf.add_to_collection(tf.GraphKeys.LOSSES, cross_entropy)
+        if do_summary:
+            tf.summary.scalar('loss', cross_entropy)
+        print('build_mask')
 
 
 def build_drn_d_22(input_tensor, **kwargs):
@@ -197,12 +220,14 @@ def get_model(model_name):
 
 
 if __name__ == '__main__':
-    input_tensor = tf.placeholder(dtype=tf.float32, shape=[None, 224, 224, 3], name='input')
+    input_tensor = tf.placeholder(dtype=tf.float32, shape=[None, 512, 512, 3], name='input')
     drn_d_22 = get_model('drn_d_22')
     model_obj = drn_d_22(input_tensor, num_classes=1000)
     print(model_obj.fc)
     for tensor in tf.model_variables():
         print(tensor)
+    print('seg_logits is ', model_obj.seg_logits)
+    model_obj.build_loss(tf.placeholder(tf.int32, shape=[None, 512, 512, 1]))
 
 
 
